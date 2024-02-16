@@ -1,0 +1,127 @@
+---
+title: "CEDAR_sc"
+author: "Sydney Hamilton"
+date: "2024-02-14"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(matrixStats)
+library(umap)
+```
+
+
+```{r}
+#reading in csv and text file, row.names = 1 make first column row names
+sc_ATAC <- read.table("atac.mm10.counts.csv", header = TRUE, sep = ",", row.names = 1)
+
+sc_ATAC = as.matrix(sc_ATAC)
+
+labels <- read.table("ATAC-seq.cell.labels.txt", header = TRUE)
+
+labels$cell = colnames(sc_ATAC)
+
+```
+
+```{r}
+#checking for duplicates just in case
+duplicates <- duplicated(sc_ATAC[, 1])
+if (any(duplicates)) {
+  print("There are duplicates.")
+} else {
+  print("There are no duplicates.")
+}
+```
+
+
+```{r}
+#sum of columns 
+col_sums <- colSums(sc_ATAC)
+
+# Perform normalization
+sc_ATAC <- sweep(sc_ATAC, MARGIN = 2, STATS = col_sums, FUN = "/")
+```
+
+```{r}
+#highly variable features (features of interest)
+foi = rowVars(sc_ATAC)
+
+#choosing highly variable features, choose high variance in rows (features of cells), highest variance on top
+foi = foi[order(foi, decreasing = TRUE)]
+
+#slicing down to first 2000
+foi = foi[1:2000]
+
+```
+
+
+```{r}
+# Perform PCA 
+pca = prcomp(x = t(sc_ATAC[names(foi),]))
+
+#percent variance explained by each principal component
+percentVar = pca$sdev^2 / sum(pca$sdev^2)
+
+percentVar = round(percentVar*100, digits = 2)
+```
+
+```{r}
+screeplot(pca)
+```
+
+```{r}
+#visualizing distribution of PC's
+data.frame(x = 1:length(percentVar), y = percentVar) %>% ggplot(aes(x = x, y = y)) +
+  geom_line() +
+  labs(x = "Principal Component", y = "Percent Variance")+
+  #scale_x_continuous(breaks = 1:10)+
+  xlim(c(0,50))+ 
+  geom_point()
+#   geom_text
+# geom_label
+```
+
+
+```{r}
+#what are the regions driving pc1 so strongly, what's accounting for most of the variance in this data
+pca$rotation %>% as.data.frame() %>% select(PC1) %>% arrange(desc(abs(PC1))) %>% head(10)
+
+#confirms findings of PC1 dominance in original 
+head(foi)
+```
+
+```{r}
+#associate metadata with data im trying to plot
+ggplot(as.data.frame(pca$x), aes(x = PC1, y = PC2))+
+  geom_point()+
+  theme_bw()
+
+#PC1 dominance 
+
+```
+```{r}
+#merge metadata plot PC's by , combine PC1 and PC2 with calls and ggplot, UMAP
+umap_data = umap(pca$x)
+
+head(umap_data$layout, 3)
+
+labeled_data = merge(umap_data$layout, labels, by.x = "row.names", by.y = "cell")
+
+```
+
+```{r}
+ggplot(labeled_data, aes(x = V1, y = V2, color = TYPE))+
+  geom_point()+
+  labs(x = "UMAP1", y = "UMAP2")+
+  theme_bw()+ 
+  facet_wrap(~TYPE)
+
+ggplot(labeled_data, aes(x = V1, y = V2, color = TYPE))+
+  geom_point()+
+  labs(x = "UMAP1", y = "UMAP2")+
+  theme_bw()
+```
+
